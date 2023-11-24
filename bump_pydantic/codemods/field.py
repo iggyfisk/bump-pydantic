@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Any, List, Union
 
 import libcst as cst
 from libcst import matchers as m
@@ -13,6 +13,13 @@ RENAMED_KEYWORDS = {
     "regex": "pattern",
     # NOTE: This is only for BaseSettings.
     "env": "validation_alias",
+}
+
+CUSTOM_KEYWORDS = {
+    "hidden",
+    "bq_type",
+    "bq_exclude",
+    "bq_cluster_by"
 }
 
 IMPORT_FIELD = m.Module(
@@ -112,8 +119,13 @@ class FieldCodemod(VisitorBasedCodemodCommand):
             return updated_node
 
         new_args: List[cst.Arg] = []
+        custom_args: dict[str, Any] = {}
         for arg in updated_node.args:
             if m.matches(arg, m.Arg(keyword=m.Name())):
+                if arg.keyword.value in CUSTOM_KEYWORDS:
+                    custom_args[arg.keyword.value] = arg.value
+                    continue
+
                 keyword = RENAMED_KEYWORDS.get(arg.keyword.value, arg.keyword.value)  # type: ignore
                 value = arg.value
                 if arg.keyword:
@@ -130,6 +142,16 @@ class FieldCodemod(VisitorBasedCodemodCommand):
                 new_args.append(new_arg)  # type: ignore
             else:
                 new_args.append(arg)
+
+        if custom_args:
+            dict_elements = [
+                cst.DictElement(
+                    cst.SimpleString(f'"{k}"'),
+                    v
+                )
+                for k, v in custom_args.items()
+            ]
+            new_args.append(cst.Arg(keyword=cst.Name("json_schema_extra"), value=cst.Dict(elements=dict_elements)))
 
         return updated_node.with_changes(args=new_args)
 
